@@ -1,4 +1,5 @@
 #include <ultramodern/ultramodern.hpp>
+#include <atomic>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,10 +20,11 @@ static inline void hm64_swap_log_vi(const char* tag, uint32_t fb) {
         return;
     }
 
-    static uint64_t seq = 0;
-    seq++;
+    // osViSwapBuffer can be called from multiple threads; keep logging thread-safe.
+    static std::atomic<uint64_t> seq{0};
+    const uint64_t n = ++seq;
     fprintf(stderr, "[hm64][swap] #%llu %s fb=0x%08X\n",
-        (unsigned long long)seq, tag, (unsigned)fb);
+        (unsigned long long)n, tag, (unsigned)fb);
 }
 
 extern "C" void osViSetYScale_recomp(uint8_t* rdram, recomp_context * ctx) {
