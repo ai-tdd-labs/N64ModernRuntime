@@ -16,6 +16,7 @@
 
 #include "ultramodern/rsp.hpp"
 #include "ultramodern/renderer_context.hpp"
+#include "ultramodern/extensions.h"
 
 static ultramodern::events::callbacks_t events_callbacks{};
 
@@ -366,10 +367,17 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
                 sp_complete();
                 ultramodern::measure_input_latency();
 
+                PTR(u64) displaylist = task_action->task.t.data_ptr;
+                ultramodern::extensions::on_displaylist_submitted(displaylist);
+
                 [[maybe_unused]] auto renderer_start = std::chrono::high_resolution_clock::now();
                 renderer_context->send_dl(&task_action->task);
                 [[maybe_unused]] auto renderer_end = std::chrono::high_resolution_clock::now();
                 dp_complete();
+
+                // Match BanjoRecomp behavior: fire PARSED/COMPLETED immediately after send_dl.
+                ultramodern::extensions::on_displaylist_parsed(displaylist);
+                ultramodern::extensions::on_displaylist_completed(displaylist);
                 // printf("Renderer ProcessDList time: %d us\n", static_cast<u32>(std::chrono::duration_cast<std::chrono::microseconds>(renderer_end - renderer_start).count()));
             }
             else if (const auto* screen_update_action = std::get_if<ScreenUpdateAction>(&action)) {
@@ -551,6 +559,7 @@ void ultramodern::submit_rsp_task(RDRAM_ARG PTR(OSTask) task_) {
 
     // Send gfx tasks to the graphics action queue
     if (task->t.type == M_GFXTASK) {
+        PTR(u64) displaylist = task->t.data_ptr;
         events_context.action_queue.enqueue(SpTaskAction{ *task });
     }
     // Set all other tasks as the RSP task

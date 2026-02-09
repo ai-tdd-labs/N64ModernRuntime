@@ -1,6 +1,8 @@
 #include <cstdio>
 #include <fstream>
+#include <cstdlib>
 #include <ultramodern/ultramodern.hpp>
+#include <ultramodern/extensions.h>
 #include "recomp.h"
 
 extern "C" void osSpTaskLoad_recomp(uint8_t* rdram, recomp_context* ctx) {
@@ -8,6 +10,14 @@ extern "C" void osSpTaskLoad_recomp(uint8_t* rdram, recomp_context* ctx) {
 }
 
 bool dump_frame = false;
+
+static inline bool env_truthy(const char* name) {
+    const char* v = std::getenv(name);
+    if (v == nullptr) {
+        return false;
+    }
+    return (v[0] == '1') || (v[0] == 'y') || (v[0] == 'Y') || (v[0] == 't') || (v[0] == 'T');
+}
 
 extern "C" void osSpTaskStartGo_recomp(uint8_t* rdram, recomp_context* ctx) {
     //printf("[sp] osSpTaskStartGo(0x%08X)\n", (uint32_t)ctx->r4);
@@ -34,6 +44,13 @@ extern "C" void osSpTaskStartGo_recomp(uint8_t* rdram, recomp_context* ctx) {
         dump_frame = false;
     }
     ultramodern::submit_rsp_task(rdram, ctx->r4);
+
+    // Some games modify vertex/texture data immediately after submitting the displaylist.
+    // Our renderer parses DLs asynchronously; wait until it has parsed this DL to remove that race.
+    // Opt-in via HM64_DL_SYNC_PARSED=1 (HM64 project can default this on).
+    if (task->t.type == M_GFXTASK && env_truthy("HM64_DL_SYNC_PARSED")) {
+        (void)ultramodern::extensions::wait_for_displaylist_parsed(task->t.data_ptr, 200);
+    }
 }
 
 extern "C" void osSpTaskYield_recomp(uint8_t* rdram, recomp_context* ctx) {
