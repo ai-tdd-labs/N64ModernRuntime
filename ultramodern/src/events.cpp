@@ -323,6 +323,13 @@ std::atomic<ultramodern::renderer::GraphicsApi> renderer_chosen_api = ultramoder
 
 void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_ready, ultramodern::renderer::WindowHandle window_handle) {
     bool enabled_instant_present = false;
+    auto env_truthy = [](const char* name) -> bool {
+        const char* v = std::getenv(name);
+        if (v == nullptr) {
+            return false;
+        }
+        return (v[0] == '1') || (v[0] == 'y') || (v[0] == 'Y') || (v[0] == 't') || (v[0] == 'T');
+    };
     using namespace std::chrono_literals;
 
     ultramodern::set_native_thread_name("Gfx Thread");
@@ -356,7 +363,8 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
             // Determine the action type and act on it
             if (const auto* task_action = std::get_if<SpTaskAction>(&action)) {
                 // Turn on instant present if the game has been started and it hasn't been turned on yet.
-                if (ultramodern::is_game_started() && !enabled_instant_present) {
+                // Some setups/drivers can show visible tearing/flicker with PresentEarly; allow opting out.
+                if (ultramodern::is_game_started() && !enabled_instant_present && !env_truthy("HM64_DISABLE_INSTANT_PRESENT")) {
                     renderer_context->enable_instant_present();
                     enabled_instant_present = true;
                 }
