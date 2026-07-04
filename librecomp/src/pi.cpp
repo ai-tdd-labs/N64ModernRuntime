@@ -319,12 +319,11 @@ static void load_dma_overlays(uint32_t physical_addr, gpr rdram_address, uint32_
     if (wr64_pi_trace_enabled() && physical_addr >= recomp::rom_base) {
         const uint32_t rom_addr = physical_addr - recomp::rom_base;
         if ((rom_addr >= 0x001B0000 && rom_addr < 0x001D2000) ||
+            (rom_addr >= 0x000A9000 && rom_addr < 0x00106000) ||
             (rdram_address_u32 >= 0x80200000 && rdram_address_u32 < 0x80300000)) {
             const bool overlay_candidate =
                 direction == 0 &&
-                physical_addr >= recomp::rom_base &&
-                rdram_address_u32 >= 0x802C0000 &&
-                rdram_address_u32 < 0x80300000;
+                physical_addr >= recomp::rom_base;
             std::fprintf(stderr,
                 "[wr64-pi] dma direction=%u rom=0x%08X ram=0x%08X size=0x%08X overlay_candidate=%u\n",
                 direction,
@@ -335,9 +334,7 @@ static void load_dma_overlays(uint32_t physical_addr, gpr rdram_address, uint32_
         }
     }
     if (direction == 0 &&
-        physical_addr >= recomp::rom_base &&
-        rdram_address_u32 >= 0x802C0000 &&
-        rdram_address_u32 < 0x80300000) {
+        physical_addr >= recomp::rom_base) {
         load_overlays(physical_addr - recomp::rom_base, static_cast<int32_t>(rdram_address_u32), size);
     }
 }
