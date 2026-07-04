@@ -1,7 +1,29 @@
 #include <memory>
+#include <cstdio>
+#include <cstdlib>
 #include <ultramodern/ultra64.h>
 #include <ultramodern/ultramodern.hpp>
 #include "recomp.h"
+
+static bool wr64_mq_trace_enabled() {
+    static const bool enabled = std::getenv("WR64_MQ_TRACE") != nullptr;
+    return enabled;
+}
+
+static void wr64_trace_os_mq_call(const char* op, const recomp_context* ctx) {
+    if (!wr64_mq_trace_enabled()) {
+        return;
+    }
+    std::fprintf(
+        stderr,
+        "[wr64-osmq] op=%s ra=0x%08X sp=0x%08X mq=0x%08X msg=0x%08X flags=0x%08X\n",
+        op,
+        static_cast<uint32_t>(ctx->r31),
+        static_cast<uint32_t>(ctx->r29),
+        static_cast<uint32_t>(ctx->r4),
+        static_cast<uint32_t>(ctx->r5),
+        static_cast<uint32_t>(ctx->r6));
+}
 
 extern "C" void osInitialize_recomp(uint8_t * rdram, recomp_context * ctx) {
     osInitialize();
@@ -46,18 +68,22 @@ extern "C" void osGetThreadId_recomp(uint8_t * rdram, recomp_context * ctx) {
 }
 
 extern "C" void osCreateMesgQueue_recomp(uint8_t* rdram, recomp_context* ctx) {
+    wr64_trace_os_mq_call("create", ctx);
     osCreateMesgQueue(rdram, (int32_t)ctx->r4, (int32_t)ctx->r5, (s32)ctx->r6);
 }
 
 extern "C" void osRecvMesg_recomp(uint8_t* rdram, recomp_context* ctx) {
+    wr64_trace_os_mq_call("recv", ctx);
     ctx->r2 = osRecvMesg(rdram, (int32_t)ctx->r4, (int32_t)ctx->r5, (s32)ctx->r6);
 }
 
 extern "C" void osSendMesg_recomp(uint8_t* rdram, recomp_context* ctx) {
+    wr64_trace_os_mq_call("send", ctx);
     ctx->r2 = osSendMesg(rdram, (int32_t)ctx->r4, (OSMesg)ctx->r5, (s32)ctx->r6);
 }
 
 extern "C" void osJamMesg_recomp(uint8_t* rdram, recomp_context* ctx) {
+    wr64_trace_os_mq_call("jam", ctx);
     ctx->r2 = osJamMesg(rdram, (int32_t)ctx->r4, (OSMesg)ctx->r5, (s32)ctx->r6);
 }
 
