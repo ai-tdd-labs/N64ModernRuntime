@@ -53,6 +53,38 @@ static void wr64_trace_mq(const char* event, PTR(OSMesgQueue) mq_, OSMesg msg, c
     }
 }
 
+static void wr64_trace_mq_guest(RDRAM_ARG const char* event, PTR(OSMesgQueue) mq_, OSMesg msg, const OSMesgQueue* mq) {
+    if (!wr64_mq_trace_enabled()) {
+        return;
+    }
+    const PTR(OSThread) self_ = ultramodern::this_thread();
+    const OSThread* self = self_ != NULLPTR ? TO_PTR(OSThread, self_) : nullptr;
+    const OSThread* recv = mq != nullptr && mq->blocked_on_recv != NULLPTR ? TO_PTR(OSThread, mq->blocked_on_recv) : nullptr;
+    const OSThread* send = mq != nullptr && mq->blocked_on_send != NULLPTR ? TO_PTR(OSThread, mq->blocked_on_send) : nullptr;
+    if (mq != nullptr) {
+        std::fprintf(
+            stderr,
+            "[wr64-mq] event=%s tid=%d self=%d self_pri=%d mq=0x%08X msg=0x%08X valid=%d count=%d first=%d recv=0x%08X recv_id=%d recv_pri=%d send=0x%08X send_id=%d send_pri=%d\n",
+            event,
+            wr64_current_thread_id(),
+            self != nullptr ? self->id : -1,
+            self != nullptr ? self->priority : -1,
+            static_cast<uint32_t>(mq_),
+            static_cast<uint32_t>(msg),
+            mq->validCount,
+            mq->msgCount,
+            mq->first,
+            static_cast<uint32_t>(mq->blocked_on_recv),
+            recv != nullptr ? recv->id : -1,
+            recv != nullptr ? recv->priority : -1,
+            static_cast<uint32_t>(mq->blocked_on_send),
+            send != nullptr ? send->id : -1,
+            send != nullptr ? send->priority : -1);
+    } else {
+        wr64_trace_mq(event, mq_, msg, mq);
+    }
+}
+
 void ultramodern::enqueue_external_message(PTR(OSMesgQueue) mq, OSMesg msg, bool jam, bool requeue_if_blocked, const char* source) {
     if (wr64_mq_trace_enabled()) {
         std::fprintf(
@@ -111,7 +143,7 @@ extern "C" void osCreateMesgQueue(RDRAM_ARG PTR(OSMesgQueue) mq_, PTR(OSMesg) ms
     mq->msg = msg;
     mq->validCount = 0;
     mq->first = 0;
-    wr64_trace_mq("create", mq_, 0, mq);
+    wr64_trace_mq_guest(PASS_RDRAM "create", mq_, 0, mq);
 }
 
 s32 MQ_GET_COUNT(OSMesgQueue *mq) {
@@ -128,11 +160,11 @@ s32 MQ_IS_FULL(OSMesgQueue* mq) {
 
 bool do_send(RDRAM_ARG PTR(OSMesgQueue) mq_, OSMesg msg, bool jam, bool block) {
     OSMesgQueue* mq = TO_PTR(OSMesgQueue, mq_);
-    wr64_trace_mq(jam ? "jam_try" : "send_try", mq_, msg, mq);
+    wr64_trace_mq_guest(PASS_RDRAM jam ? "jam_try" : "send_try", mq_, msg, mq);
     if (!block) {
         // If non-blocking, fail if the queue is full.
         if (MQ_IS_FULL(mq)) {
-            wr64_trace_mq(jam ? "jam_full" : "send_full", mq_, msg, mq);
+            wr64_trace_mq_guest(PASS_RDRAM jam ? "jam_full" : "send_full", mq_, msg, mq);
             return false;
         }
     }
@@ -140,7 +172,7 @@ bool do_send(RDRAM_ARG PTR(OSMesgQueue) mq_, OSMesg msg, bool jam, bool block) {
         // Otherwise, yield this thread until the queue has room.
         while (MQ_IS_FULL(mq)) {
             debug_printf("[Message Queue] Thread %d is blocked on send\n", TO_PTR(OSThread, ultramodern::this_thread())->id);
-            wr64_trace_mq(jam ? "jam_block" : "send_block", mq_, msg, mq);
+            wr64_trace_mq_guest(PASS_RDRAM jam ? "jam_block" : "send_block", mq_, msg, mq);
             ultramodern::thread_queue_insert(PASS_RDRAM GET_MEMBER(OSMesgQueue, mq_, blocked_on_send), ultramodern::this_thread());
             ultramodern::run_next_thread_and_wait(PASS_RDRAM1);
         }
@@ -164,25 +196,25 @@ bool do_send(RDRAM_ARG PTR(OSMesgQueue) mq_, OSMesg msg, bool jam, bool block) {
     if (!ultramodern::thread_queue_empty(PASS_RDRAM blocked_queue)) {
         ultramodern::schedule_running_thread(PASS_RDRAM ultramodern::thread_queue_pop(PASS_RDRAM blocked_queue));
     }
-    wr64_trace_mq(jam ? "jam_ok" : "send_ok", mq_, msg, mq);
+    wr64_trace_mq_guest(PASS_RDRAM jam ? "jam_ok" : "send_ok", mq_, msg, mq);
     
     return true;
 }
 
 bool do_recv(RDRAM_ARG PTR(OSMesgQueue) mq_, PTR(OSMesg) msg_, bool block) {
     OSMesgQueue* mq = TO_PTR(OSMesgQueue, mq_);
-    wr64_trace_mq("recv_try", mq_, 0, mq);
+    wr64_trace_mq_guest(PASS_RDRAM "recv_try", mq_, 0, mq);
     if (!block) {
         // If non-blocking, fail if the queue is empty
         if (MQ_IS_EMPTY(mq)) {
-            wr64_trace_mq("recv_empty", mq_, 0, mq);
+            wr64_trace_mq_guest(PASS_RDRAM "recv_empty", mq_, 0, mq);
             return false;
         }
     } else {
         // Otherwise, yield this thread in a loop until the queue is no longer full
         while (MQ_IS_EMPTY(mq)) {
             debug_printf("[Message Queue] Thread %d is blocked on receive\n", TO_PTR(OSThread, ultramodern::this_thread())->id);
-            wr64_trace_mq("recv_block", mq_, 0, mq);
+            wr64_trace_mq_guest(PASS_RDRAM "recv_block", mq_, 0, mq);
             ultramodern::thread_queue_insert(PASS_RDRAM GET_MEMBER(OSMesgQueue, mq_, blocked_on_recv), ultramodern::this_thread());
             ultramodern::run_next_thread_and_wait(PASS_RDRAM1);
         }
@@ -204,7 +236,7 @@ bool do_recv(RDRAM_ARG PTR(OSMesgQueue) mq_, PTR(OSMesg) msg_, bool block) {
     if (!ultramodern::thread_queue_empty(PASS_RDRAM blocked_queue)) {
         ultramodern::schedule_running_thread(PASS_RDRAM ultramodern::thread_queue_pop(PASS_RDRAM blocked_queue));
     }
-    wr64_trace_mq("recv_ok", mq_, received_msg, mq);
+    wr64_trace_mq_guest(PASS_RDRAM "recv_ok", mq_, received_msg, mq);
 
     return true;
 }
