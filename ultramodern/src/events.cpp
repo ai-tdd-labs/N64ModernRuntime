@@ -8,6 +8,8 @@
 #include <mutex>
 #include <queue>
 #include <cstring>
+#include <cstdio>
+#include <cstdlib>
 
 #include "blockingconcurrentqueue.h"
 
@@ -19,6 +21,38 @@
 #include "ultramodern/renderer_context.hpp"
 
 static ultramodern::events::callbacks_t events_callbacks{};
+
+static bool wr64_gfx_trace_enabled() {
+    static const bool enabled = std::getenv("WR64_GFX_TRACE") != nullptr;
+    return enabled;
+}
+
+static void wr64_trace_task(const char* event, const OSTask* task) {
+    if (!wr64_gfx_trace_enabled() || task == nullptr) {
+        return;
+    }
+
+    std::fprintf(
+        stderr,
+        "[wr64-gfx] event=%s type=%u flags=0x%08X data=0x%08X data_size=0x%08X ucode=0x%08X ucode_data=0x%08X out=0x%08X out_size=0x%08X\n",
+        event,
+        task->t.type,
+        task->t.flags,
+        static_cast<uint32_t>(task->t.data_ptr),
+        task->t.data_size,
+        static_cast<uint32_t>(task->t.ucode),
+        static_cast<uint32_t>(task->t.ucode_data),
+        static_cast<uint32_t>(task->t.output_buff),
+        static_cast<uint32_t>(task->t.output_buff_size));
+}
+
+static void wr64_trace_gfx(const char* event, uint32_t a = 0, uint32_t b = 0, uint32_t c = 0) {
+    if (!wr64_gfx_trace_enabled()) {
+        return;
+    }
+
+    std::fprintf(stderr, "[wr64-gfx] event=%s a=0x%08X b=0x%08X c=0x%08X\n", event, a, b, c);
+}
 
 void ultramodern::events::set_callbacks(const ultramodern::events::callbacks_t& callbacks) {
     events_callbacks = callbacks;
@@ -258,12 +292,14 @@ void vi_thread_func() {
 void sp_complete() {
     uint8_t* rdram = events_context.rdram;
     std::lock_guard lock{ events_context.message_mutex };
+    wr64_trace_gfx("sp_complete", events_context.sp.mq, events_context.sp.msg, 0);
     ultramodern::enqueue_external_message(events_context.sp.mq, events_context.sp.msg, false, true, "sp");
 }
 
 void dp_complete() {
     uint8_t* rdram = events_context.rdram;
     std::lock_guard lock{ events_context.message_mutex };
+    wr64_trace_gfx("dp_complete", events_context.dp.mq, events_context.dp.msg, 0);
     ultramodern::enqueue_external_message(events_context.dp.mq, events_context.dp.msg, false, true, "dp");
 }
 
@@ -359,6 +395,7 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
         if (events_context.action_queue.wait_dequeue_timed(action, 1ms)) {
             // Determine the action type and act on it
             if (const auto* task_action = std::get_if<SpTaskAction>(&action)) {
+                wr64_trace_task("gfx_action", &task_action->task);
                 // Tell the game that the RSP completed instantly. This will allow it to queue other task types, but it won't
                 // start another graphics task until the RDP is also complete. Games usually preserve the RSP inputs until the RDP
                 // is finished as well, so sending this early shouldn't be an issue in most cases.
@@ -370,7 +407,9 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
                 ultramodern::extensions::on_displaylist_submitted(displaylist);
 
                 [[maybe_unused]] auto renderer_start = std::chrono::high_resolution_clock::now();
+                wr64_trace_task("send_dl_begin", &task_action->task);
                 renderer_context->send_dl(&task_action->task);
+                wr64_trace_task("send_dl_end", &task_action->task);
                 [[maybe_unused]] auto renderer_end = std::chrono::high_resolution_clock::now();
 
                 dp_complete();
@@ -380,6 +419,11 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
                 // printf("Renderer ProcessDList time: %d us\n", static_cast<u32>(std::chrono::duration_cast<std::chrono::microseconds>(renderer_end - renderer_start).count()));
             }
             else if (const auto* screen_update_action = std::get_if<ScreenUpdateAction>(&action)) {
+                wr64_trace_gfx(
+                    "screen_update",
+                    screen_update_action->regs.VI_ORIGIN_REG,
+                    screen_update_action->regs.VI_H_START_REG,
+                    screen_update_action->regs.VI_V_START_REG);
                 events_context.vi.update_screen_regs = screen_update_action->regs;
                 renderer_context->update_screen();
                 display_refresh_rate = renderer_context->get_display_framerate();
@@ -562,10 +606,12 @@ void ultramodern::submit_rsp_task(RDRAM_ARG PTR(OSTask) task_) {
 
     // Send gfx tasks to the graphics action queue
     if (task->t.type == M_GFXTASK) {
+        wr64_trace_task("submit_gfx", task);
         events_context.action_queue.enqueue(SpTaskAction{ *task });
     }
     // Set all other tasks as the RSP task
     else {
+        wr64_trace_task("submit_rsp", task);
         events_context.sp_task_queue.enqueue(task);
     }
 }
