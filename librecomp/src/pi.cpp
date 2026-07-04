@@ -8,6 +8,7 @@
 #include "librecomp/addresses.hpp"
 #include "librecomp/game.hpp"
 #include "librecomp/files.hpp"
+#include "librecomp/overlays.hpp"
 #include <ultramodern/ultra64.h>
 #include <ultramodern/ultramodern.hpp>
 
@@ -309,6 +310,15 @@ void do_dma(RDRAM_ARG PTR(OSMesgQueue) mq, gpr rdram_address, uint32_t physical_
     }
 }
 
+static void load_dma_overlays(uint32_t physical_addr, gpr rdram_address, uint32_t size, uint32_t direction) {
+    if (direction == 0 &&
+        physical_addr >= recomp::rom_base &&
+        rdram_address >= 0x802C0000 &&
+        rdram_address < 0x80300000) {
+        load_overlays(physical_addr - recomp::rom_base, static_cast<int32_t>(rdram_address), size);
+    }
+}
+
 extern "C" void osPiStartDma_recomp(RDRAM_ARG recomp_context* ctx) {
     uint32_t mb = ctx->r4;
     uint32_t pri = ctx->r5;
@@ -321,6 +331,7 @@ extern "C" void osPiStartDma_recomp(RDRAM_ARG recomp_context* ctx) {
 
     debug_printf("[pi] DMA from 0x%08X into 0x%08X of size 0x%08X\n", devAddr, dramAddr, size);
 
+    load_dma_overlays(physical_addr, dramAddr, size, direction);
     do_dma(PASS_RDRAM mq, dramAddr, physical_addr, size, direction);
 
     ctx->r2 = 0;
@@ -338,6 +349,7 @@ extern "C" void osEPiStartDma_recomp(RDRAM_ARG recomp_context* ctx) {
 
     debug_printf("[pi] DMA from 0x%08X into 0x%08X of size 0x%08X\n", devAddr, dramAddr, size);
 
+    load_dma_overlays(physical_addr, dramAddr, size, direction);
     do_dma(PASS_RDRAM mq, dramAddr, physical_addr, size, direction);
 
     ctx->r2 = 0;

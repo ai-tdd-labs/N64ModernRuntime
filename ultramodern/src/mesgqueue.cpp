@@ -37,6 +37,7 @@ void ultramodern::wait_for_external_message(RDRAM_ARG1) {
     QueuedMessage to_send;
     external_messages.wait_dequeue(to_send);
     if (!do_send(PASS_RDRAM to_send.mq, to_send.mesg, to_send.jam, false) && to_send.requeue_if_blocked) {
+        std::this_thread::sleep_for(std::chrono::milliseconds{1});
         external_messages.enqueue(to_send);
     }
 }
@@ -45,6 +46,7 @@ void ultramodern::wait_for_external_message_timed(RDRAM_ARG u32 millis) {
     QueuedMessage to_send;
     if (external_messages.wait_dequeue_timed(to_send, std::chrono::milliseconds{millis})) {
         if (!do_send(PASS_RDRAM to_send.mq, to_send.mesg, to_send.jam, false) && to_send.requeue_if_blocked) {
+            std::this_thread::sleep_for(std::chrono::milliseconds{1});
             external_messages.enqueue(to_send);
         }
     }

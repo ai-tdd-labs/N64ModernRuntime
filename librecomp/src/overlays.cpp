@@ -186,21 +186,15 @@ void recomp::overlays::read_patch_data(uint8_t* rdram, gpr patch_data_address) {
 }
 
 extern "C" void load_overlays(uint32_t rom, int32_t ram_addr, uint32_t size) {
-    // Search for the first section that's included in the loaded rom range
-    // Sections were sorted by `init_overlays` so we can use the bounds functions
-    auto lower = std::lower_bound(&sections_info.code_sections[0], &sections_info.code_sections[sections_info.num_code_sections], rom,
-        [](const SectionTableEntry& entry, uint32_t addr) {
-            return entry.rom_addr < addr;
+    const uint32_t rom_end = rom + size;
+
+    for (size_t section_index = 0; section_index < sections_info.num_code_sections; section_index++) {
+        const SectionTableEntry& section = sections_info.code_sections[section_index];
+        const uint32_t section_rom_end = section.rom_addr + section.size;
+
+        if (rom < section_rom_end && rom_end > section.rom_addr) {
+            load_overlay(section_index, section.rom_addr - rom + ram_addr);
         }
-    );
-    auto upper = std::upper_bound(&sections_info.code_sections[0], &sections_info.code_sections[sections_info.num_code_sections], (uint32_t)(rom + size),
-        [](uint32_t addr, const SectionTableEntry& entry) {
-            return addr < entry.size + entry.rom_addr;
-        }
-    );
-    // Load the overlays that were found
-    for (auto it = lower; it != upper; ++it) {
-        load_overlay(std::distance(&sections_info.code_sections[0], it), it->rom_addr - rom + ram_addr);
     }
 }
 
