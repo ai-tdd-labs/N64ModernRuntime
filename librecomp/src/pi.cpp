@@ -1,6 +1,7 @@
 #include <memory>
 #include <fstream>
 #include <array>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <mutex>
@@ -13,6 +14,11 @@
 #include <ultramodern/ultramodern.hpp>
 
 static std::vector<uint8_t> rom;
+
+static bool wr64_pi_trace_enabled() {
+    static const bool enabled = std::getenv("WR64_PI_TRACE") != nullptr;
+    return enabled;
+}
 
 bool recomp::is_rom_loaded() {
     return !rom.empty();
@@ -309,11 +315,30 @@ void do_dma(RDRAM_ARG PTR(OSMesgQueue) mq, gpr rdram_address, uint32_t physical_
 }
 
 static void load_dma_overlays(uint32_t physical_addr, gpr rdram_address, uint32_t size, uint32_t direction) {
+    const uint32_t rdram_address_u32 = static_cast<uint32_t>(rdram_address);
+    if (wr64_pi_trace_enabled() && physical_addr >= recomp::rom_base) {
+        const uint32_t rom_addr = physical_addr - recomp::rom_base;
+        if ((rom_addr >= 0x001B0000 && rom_addr < 0x001D2000) ||
+            (rdram_address_u32 >= 0x80200000 && rdram_address_u32 < 0x80300000)) {
+            const bool overlay_candidate =
+                direction == 0 &&
+                physical_addr >= recomp::rom_base &&
+                rdram_address_u32 >= 0x802C0000 &&
+                rdram_address_u32 < 0x80300000;
+            std::fprintf(stderr,
+                "[wr64-pi] dma direction=%u rom=0x%08X ram=0x%08X size=0x%08X overlay_candidate=%u\n",
+                direction,
+                rom_addr,
+                rdram_address_u32,
+                size,
+                overlay_candidate);
+        }
+    }
     if (direction == 0 &&
         physical_addr >= recomp::rom_base &&
-        rdram_address >= 0x802C0000 &&
-        rdram_address < 0x80300000) {
-        load_overlays(physical_addr - recomp::rom_base, static_cast<int32_t>(rdram_address), size);
+        rdram_address_u32 >= 0x802C0000 &&
+        rdram_address_u32 < 0x80300000) {
+        load_overlays(physical_addr - recomp::rom_base, static_cast<int32_t>(rdram_address_u32), size);
     }
 }
 

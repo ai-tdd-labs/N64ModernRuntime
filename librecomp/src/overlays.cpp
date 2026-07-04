@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <unordered_map>
 #include <vector>
@@ -41,6 +42,11 @@ static std::unordered_map<std::string, recomp_func_t*> base_exports{};
 static std::unordered_map<std::string, recomp_func_ext_t*> ext_base_exports{};
 static std::unordered_map<std::string, size_t> base_events;
 static std::unordered_map<uint32_t, recomp_func_t*> manual_patch_symbols_by_vram;
+
+static bool wr64_overlay_trace_enabled() {
+    static const bool enabled = std::getenv("WR64_OVERLAY_TRACE") != nullptr;
+    return enabled;
+}
 
 extern "C" {
 int32_t* section_addresses = nullptr;
@@ -153,6 +159,17 @@ void recomp::overlays::add_loaded_function(int32_t ram, recomp_func_t* func) {
 void load_overlay(size_t section_table_index, int32_t ram) {
     const SectionTableEntry& section = sections_info.code_sections[section_table_index];
 
+    if (wr64_overlay_trace_enabled()) {
+        std::fprintf(stderr,
+            "[wr64-overlay] load section_index=%zu section_id=%zu rom=0x%08X ram=0x%08X size=0x%08X funcs=%zu\n",
+            section_table_index,
+            section.index,
+            section.rom_addr,
+            static_cast<uint32_t>(ram),
+            section.size,
+            section.num_funcs);
+    }
+
     for (size_t function_index = 0; function_index < section.num_funcs; function_index++) {
         const FuncEntry& func = section.funcs[function_index];
         func_map[ram + func.offset] = func.func;
@@ -187,6 +204,14 @@ void recomp::overlays::read_patch_data(uint8_t* rdram, gpr patch_data_address) {
 
 extern "C" void load_overlays(uint32_t rom, int32_t ram_addr, uint32_t size) {
     const uint32_t rom_end = rom + size;
+
+    if (wr64_overlay_trace_enabled()) {
+        std::fprintf(stderr,
+            "[wr64-overlay] request rom=0x%08X ram=0x%08X size=0x%08X\n",
+            rom,
+            static_cast<uint32_t>(ram_addr),
+            size);
+    }
 
     for (size_t section_index = 0; section_index < sections_info.num_code_sections; section_index++) {
         const SectionTableEntry& section = sections_info.code_sections[section_index];
@@ -361,6 +386,12 @@ extern "C" recomp_func_t * get_function(int32_t addr) {
         fprintf(stderr, "Failed to find function at 0x%08X\n", addr);
         assert(false);
         std::exit(EXIT_FAILURE);
+    }
+    if (wr64_overlay_trace_enabled() && (addr >= static_cast<int32_t>(0x802C5800) && addr < static_cast<int32_t>(0x802C8000))) {
+        std::fprintf(stderr,
+            "[wr64-overlay] lookup addr=0x%08X func=%p\n",
+            static_cast<uint32_t>(addr),
+            reinterpret_cast<void*>(func_find->second));
     }
     return func_find->second;
 }
