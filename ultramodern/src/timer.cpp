@@ -157,8 +157,23 @@ std::chrono::high_resolution_clock::duration ultramodern::time_since_start() {
     return std::chrono::high_resolution_clock::now() - start_time;
 }
 
+// Wave Race determinism: with WR64_DETERMINISTIC set, guest-visible time is
+// derived from the VI counter instead of the host clock. Wave Race seeds its
+// wave/gameplay RNG via Math_srand() -> osGetTime(), so host-clock time makes
+// every run (and thus every input replay) diverge. The host-side scheduling
+// (timer thread, VI pacing) keeps using real time.
+extern uint64_t total_vis; // events.cpp
+static bool wr64_deterministic_time() {
+    static const bool enabled = getenv("WR64_DETERMINISTIC") != nullptr;
+    return enabled;
+}
+static uint64_t deterministic_ticks() {
+    // N64 COUNT runs at 46.875 MHz; one 60 Hz VI = 781250 ticks.
+    return total_vis * 781250ull;
+}
+
 extern "C" u32 osGetCount() {
-    uint64_t total_count = time_now();
+    uint64_t total_count = wr64_deterministic_time() ? deterministic_ticks() : time_now();
 
     // Allow for overflows, which is how osGetCount behaves
     return (uint32_t)total_count;
@@ -169,6 +184,9 @@ extern "C" void osSetCount(u32 count) {
 }
 
 extern "C" OSTime osGetTime() {
+    if (wr64_deterministic_time()) {
+        return deterministic_ticks() - ostime_offset;
+    }
     uint64_t total_count = time_now() - ostime_offset;
 
     return total_count;
